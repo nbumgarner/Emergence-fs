@@ -12,15 +12,20 @@ DIAG = efs_diag
 
 all: core tools diag
 
+tools: efs_seal efs_vault
+
+efs_seal: tools/efs_seal.cpp include/topology.hpp include/state_engine.hpp
+	$(CXX) $(CXXFLAGS) -o efs_seal tools/efs_seal.cpp $(LDFLAGS)
+
+efs_vault: tools/efs_vault.cpp include/topology.hpp include/state_engine.hpp
+	$(CXX) $(CXXFLAGS) -o efs_vault tools/efs_vault.cpp $(LDFLAGS)
+
 core: src/emergence_fs.cpp include/topology.hpp include/filemap.hpp
 	$(CXX) $(CXXFLAGS) $(FUSE_FLAGS) -o $(CORE) src/emergence_fs.cpp $(FUSE_LIBS) $(LDFLAGS)
 
-tools: tools/efs_seal.cpp tools/efs_vault.cpp include/topology.hpp include/state_engine.hpp
-	$(CXX) $(CXXFLAGS) -o efs_seal tools/efs_seal.cpp $(LDFLAGS)
-	$(CXX) $(CXXFLAGS) -o efs_vault tools/efs_vault.cpp $(LDFLAGS)
-
 diag: src/efs_diag.cpp include/topology.hpp
 	$(CXX) $(CXXFLAGS) -o $(DIAG) src/efs_diag.cpp
+
 
 clean:
 	rm -f $(CORE) $(TOOLS) $(DIAG)
