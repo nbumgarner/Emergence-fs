@@ -110,51 +110,33 @@ struct Seed {
 };
 
 // ============================================================
-// Memory-hard Key Derivation
+// Memory-hard Key Derivation (Argon2id)
 // ============================================================
 
 struct KeyDerivation {
     static Seed derive(const char* password, const char* hwkey) {
-        size_t pw_len = strlen(password);
-        size_t hk_len = strlen(hwkey);
+        std::string combined = std::string(password) + "|" + hwkey;
+        uint8_t seed_bytes[32];
+        uint8_t salt[crypto_pwhash_SALTBYTES];
+        
+        // Generate deterministic salt from hardware key
+        crypto_generichash(salt, sizeof(salt), (const uint8_t*)hwkey, strlen(hwkey), NULL, 0);
 
-        uint64_t hi = 0xCBF29CE484222325ULL;
-        uint64_t lo = 0x00000100000001B3ULL;
-
-        for (size_t i = 0; i < pw_len; i++) {
-            hi ^= (uint8_t)password[i]; hi *= 0x00000100000001B3ULL;
-            lo ^= (uint8_t)password[i]; lo *= 0x01000193ULL;
-        }
-        for (size_t i = 0; i < hk_len; i++) {
-            hi ^= (uint8_t)hwkey[i]; hi *= 0x00000100000001B3ULL;
-            lo ^= (uint8_t)hwkey[i]; lo *= 0x01000193ULL;
-        }
-
-        struct Cell { uint64_t a, b; };
-        std::vector<Cell> mem(KDF_MEM_BLOCKS);
-        mem[0] = {hi, lo};
-        for (size_t i = 1; i < KDF_MEM_BLOCKS; i++) {
-            mem[i].a = ((mem[i-1].a << 13) | (mem[i-1].a >> 51)) ^ (mem[i-1].b * PHI_HI);
-            mem[i].b = ((mem[i-1].b << 17) | (mem[i-1].b >> 47)) ^ (mem[i-1].a * PHI_LO);
+        if (crypto_pwhash(seed_bytes, 32, combined.c_str(), combined.size(), salt,
+                          crypto_pwhash_OPSLIMIT_INTERACTIVE, 
+                          crypto_pwhash_MEMLIMIT_INTERACTIVE,
+                          crypto_pwhash_ALG_ARGON2ID13) != 0) {
+            throw std::runtime_error("Argon2id derivation failed");
         }
 
-        uint64_t s_hi = hi, s_lo = lo;
-        for (uint32_t pass = 0; pass < KDF_MEM_PASSES; pass++) {
-            for (size_t i = 0; i < KDF_MEM_BLOCKS; i++) {
-                size_t idx = (size_t)(s_hi % KDF_MEM_BLOCKS);
-                s_hi ^= mem[idx].a; s_lo ^= mem[idx].b;
-                s_hi = ((s_hi << 31) | (s_hi >> 33)) ^ (s_lo * PHI_HI);
-                s_lo = ((s_lo << 29) | (s_lo >> 35)) ^ (s_hi * PHI_LO);
-                mem[idx].a ^= s_hi; mem[idx].b ^= s_lo;
-            }
-        }
-
-        for (uint32_t r = 0; r < KDF_ROUNDS; r++) {
-            s_hi = ((s_hi << 31) | (s_hi >> 33)) ^ (s_lo * PHI_HI);
-            s_lo = ((s_lo << 29) | (s_lo >> 35)) ^ (s_hi * PHI_LO);
-        }
-
-        return {s_hi, s_lo};
+        Seed s;
+        memcpy(&s.hi, seed_bytes, 8);
+        memcpy(&s.lo, seed_bytes + 8, 8);
+        
+        // Securely clear temporary buffer
+        sodium_memzero(seed_bytes, sizeof(seed_bytes));
+        
+        return s;
     }
 };
 
@@ -166,16 +148,23 @@ struct LensKey { uint64_t hi, lo; };
 
 struct LensGenerator {
     static void generate(Seed master, LensKey keys[LENS_COUNT]) {
+        uint8_t prk[32] = {0};
+        memcpy(prk, &master.hi, 8);
+        memcpy(prk + 8, &master.lo, 8);
+        
         for (int i = 0; i < LENS_COUNT; i++) {
-            uint64_t mix_hi = master.hi ^ (uint64_t)i;
-            uint64_t mix_lo = master.lo ^ ((uint64_t)i << 32);
-            for (int r = 0; r < 64; r++) {
-                mix_hi = ((mix_hi << 7) | (mix_hi >> 57)) ^ (mix_lo * PHI_HI);
-                mix_lo = ((mix_lo << 11) | (mix_lo >> 53)) ^ (mix_hi * PHI_LO);
-                mix_hi += (uint64_t)i;
-            }
-            keys[i] = {mix_hi, mix_lo};
+            uint8_t info[8] = {0};
+            memcpy(info, &i, 4);
+            // Domain separation
+            info[4] = 'L'; info[5] = 'E'; info[6] = 'N'; info[7] = 'S';
+            
+            uint8_t out[16];
+            crypto_generichash(out, 16, info, 8, prk, 32);
+            
+            memcpy(&keys[i].hi, out, 8);
+            memcpy(&keys[i].lo, out + 8, 8);
         }
+        sodium_memzero(prk, sizeof(prk));
     }
 };
 
@@ -606,14 +595,16 @@ public:
 
 private:
     static void obfuscate(uint8_t* data, size_t len, Seed s, uint64_t bi) {
-        uint64_t sh = s.hi ^ (bi * PHI_HI), sl = s.lo ^ (bi * PHI_LO);
-        for (size_t i = 0; i < len; i += 8) {
-            sh = ((sh << 13) | (sh >> 51)) ^ (sl * PHI_HI);
-            sl = ((sl << 17) | (sl >> 47)) ^ (sh * PHI_LO);
-            size_t rem = std::min((size_t)8, len - i);
-            for (size_t j = 0; j < rem; j++)
-                data[i + j] ^= (uint8_t)(sl >> (j * 8));
-        }
+        uint8_t key[32] = {0};
+        memcpy(key, &s.hi, 8);
+        memcpy(key + 8, &s.lo, 8);
+        
+        uint8_t nonce[12] = {0};
+        // Use block index as nonce
+        memcpy(nonce, &bi, 8);
+
+        crypto_stream_chacha20_ietf_xor(data, data, len, nonce, key);
+        sodium_memzero(key, sizeof(key));
     }
 };
 

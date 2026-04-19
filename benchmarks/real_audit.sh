@@ -4,10 +4,13 @@
 # ==============================================================================
 set -e
 
-WORKSPACE_ROOT="/home/ubuntu"
-ENTROPY_FILE="$WORKSPACE_ROOT/entropy_1gb.bin"
-OUTPUT_FILE="$WORKSPACE_ROOT/audit_out.enc"
-SEAL_BIN="$WORKSPACE_ROOT/emergence-fs/efs_seal"
+# Get the script's directory
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+REPO_ROOT="$( dirname "$SCRIPT_DIR" )"
+
+ENTROPY_FILE="$REPO_ROOT/entropy_1gb.bin"
+OUTPUT_FILE="$REPO_ROOT/audit_out.enc"
+SEAL_BIN="$REPO_ROOT/efs_seal"
 
 CYAN='\033[0;36m'
 GREEN='\033[0;32m'
@@ -24,9 +27,8 @@ fi
 
 # 2. Re-build with the Fixed Engine
 echo -e "${YELLOW}Re-building Production Engine...${NC}"
-cd "$WORKSPACE_ROOT/emergence-fs"
-g++ -std=c++17 -O3 -march=native -o efs_seal efs_seal.cpp -lsodium
-cd "$WORKSPACE_ROOT"
+cd "$REPO_ROOT"
+make efs_seal
 
 # 3. 15GB Throughput Test (15 Iterations of 1GB)
 echo -e "${YELLOW}Initiating 15GB Sequential Hardware Projection...${NC}"
@@ -45,6 +47,7 @@ done
 TOTAL_END=$(date +%s.%N)
 DURATION=$(echo "$TOTAL_END - $TOTAL_START" | bc)
 THROUGHPUT=$(echo "15360 / $DURATION" | bc -l)
+
 
 echo -e "\n${GREEN}TRUTHFUL AUDIT COMPLETE${NC}"
 echo -e "Total Data: 15 GB"
