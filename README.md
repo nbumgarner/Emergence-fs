@@ -52,6 +52,18 @@ As this is the initial public release of the EmergenceFS suite, users should be 
 - **Hardware-Binding**: The vault is cryptographically bound to the machine ID. Moving a vault image between different physical machines requires manual re-keying via the `EFS_HWKEY` environment variable.
 - **Experimental Status**: This codebase is a functional research prototype. While stable for audit, it should not yet be used as the primary storage for mission-critical production data without a redundant backup.
 
+## The Topological Horizon: Scalability & R&D
+The current 13 GB limit is a physical materialization constraint of this public suite. The underlying 80-bit coordinate system (the "Topological Telescope") is theoretically capable of addressing exabyte-scale virtual spaces.
+
+Advanced features currently in research and development include:
+- **Sub-Shannon Data Evaporation**: Leveraging deterministic residue collapse to achieve compression ratios that defy classical limits.
+- **Terabyte-Scale Sparse Substrates**: Utilizing specialized Topological MMUs to manage massive virtual address spaces with minimal physical disk footprint.
+- **Lock-Free Multi-Core Braiding**: High-concurrency gestation engines for rapid ingestion of large-scale models (e.g., 120B+ parameter sets).
+- **GPU-Accelerated XOR Projection**: Porting the state-engine to CUDA/OpenCL for 10+ GB/s real-time hardware encryption.
+
+These components remain proprietary to Emergence Systems and are being prepared for future commercial integration and patent filing.
+
 ## License
 EmergenceFS Sovereign License - See `LICENSE` for details.
+
 
